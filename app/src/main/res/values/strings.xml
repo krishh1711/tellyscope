@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name" translatable="false">Tellyscope</string>
 
     <!-- copy -->
@@ -326,6 +326,11 @@
     <!-- TV folders -->
     <string name="copy_folder_download">Download</string>
     <string name="copy_folder_movies">Movies</string>
+    <string name="copy_folder_pictures" tools:ignore="MissingTranslation">Pictures</string>
+    <string name="copy_folder_music" tools:ignore="MissingTranslation">Music</string>
+    <string name="copy_folder_documents" tools:ignore="MissingTranslation">Documents</string>
+    <string name="copy_folder_dcim" tools:ignore="MissingTranslation">DCIM</string>
+    <string name="copy_folder_storage" tools:ignore="MissingTranslation">Internal Storage</string>
 
     <!-- Sideload -->
     <string name="copy_install_new">Install</string>
@@ -1267,6 +1272,26 @@
     <string name="remote_touchpad">Touchpad</string>
     <string name="remote_touchpad_swipe">Swipe to move</string>
     <string name="remote_touchpad_tap">Tap for OK</string>
+    <string name="remote_mouse" tools:ignore="MissingTranslation">Mouse cursor</string>
+    <string name="remote_mouse_move" tools:ignore="MissingTranslation">Drag to move cursor</string>
+    <string name="remote_mouse_tap" tools:ignore="MissingTranslation">Tap or Left Click to select</string>
+    <string name="remote_mouse_left_click" tools:ignore="MissingTranslation">Left Click</string>
+    <string name="remote_mouse_right_click" tools:ignore="MissingTranslation">Right Click</string>
+    <string name="remote_mouse_drag_mode" tools:ignore="MissingTranslation">Drag &amp; Select Mode</string>
+    <string name="remote_mouse_click_mode" tools:ignore="MissingTranslation">Point &amp; Click Mode</string>
+    <string name="remote_mouse_switch_drag" tools:ignore="MissingTranslation">Switch to Drag</string>
+    <string name="remote_mouse_switch_click" tools:ignore="MissingTranslation">Switch to Click</string>
+    <string name="remote_mouse_drag_hint" tools:ignore="MissingTranslation">Drag on pad to select / drag on TV</string>
+    <string name="remote_mouse_tv_cursor_title" tools:ignore="MissingTranslation">TV Mouse Pointer</string>
+    <string name="remote_mouse_install_helper" tools:ignore="MissingTranslation">Install TV Helper</string>
+    <string name="remote_mouse_helper_installed" tools:ignore="MissingTranslation">TV Helper Active</string>
+    <string name="settings_mouse_enabled_title" tools:ignore="MissingTranslation">Mouse Control Mode</string>
+    <string name="settings_mouse_enabled_text" tools:ignore="MissingTranslation">Enables virtual mouse cursor mode on the Remote screen</string>
+    <string name="settings_tv_pointer_title" tools:ignore="MissingTranslation">Show TV Mouse Pointer</string>
+    <string name="settings_tv_pointer_text" tools:ignore="MissingTranslation">Displays an on-screen mouse cursor pointer on the TV for precision control</string>
+    <string name="settings_install_mouse_plugin_title" tools:ignore="MissingTranslation">Install TV Mouse Plugin Helper</string>
+    <string name="settings_install_mouse_plugin_text" tools:ignore="MissingTranslation">Installs lightweight TV helper plugin onto the TV for custom mouse cursor overlay</string>
+    <string name="settings_mouse_plugin_installed" tools:ignore="MissingTranslation">TV Mouse Plugin deployed to TV</string>
     <string name="remote_back">Back</string>
     <string name="remote_home">Home</string>
     <string name="remote_menu">Menu</string>
@@ -1393,8 +1418,28 @@
     <string name="transfers_send_file">Send file</string>
     <!-- Menu item: send a file to this folder on the TV; %1$s is the folder's name -->
     <string name="transfers_to_folder">To %1$s</string>
+    <string name="transfers_to_current_folder" tools:ignore="MissingTranslation">To currently opened folder</string>
+    <string name="transfers_quick_picks" tools:ignore="MissingTranslation">Quick Picks</string>
     <string name="transfers_tap_to_save">Tap a file to save a copy on your phone.</string>
     <string name="transfers_save">Save</string>
+    <string name="transfers_copy" tools:ignore="MissingTranslation">Copy</string>
+    <string name="transfers_cut" tools:ignore="MissingTranslation">Cut</string>
+    <string name="transfers_paste" tools:ignore="MissingTranslation">Paste</string>
+    <string name="transfers_delete" tools:ignore="MissingTranslation">Delete</string>
+    <string name="transfers_open_with" tools:ignore="MissingTranslation">Open with</string>
+    <string name="transfers_open_with_title" tools:ignore="MissingTranslation">Open %1$s with TV App</string>
+    <string name="transfers_open_with_caption" tools:ignore="MissingTranslation">Select an app that supports this file format (%1$s). Certain formats may not open in unsupported apps.</string>
+    <string name="transfers_no_apps_found" tools:ignore="MissingTranslation">No launchable TV apps found</string>
+    <string name="apps_open_url_label" tools:ignore="MissingTranslation">Open URL in TV App</string>
+    <string name="apps_open_url_placeholder" tools:ignore="MissingTranslation">https://example.com or stream link</string>
+    <string name="apps_open_url_button" tools:ignore="MissingTranslation">Open</string>
+    <string name="apps_open_url_default_hint" tools:ignore="MissingTranslation">Opens with %1$s · Long-press Open to change app</string>
+    <string name="apps_select_url_app_title" tools:ignore="MissingTranslation">Select TV App to Open URL</string>
+    <string name="apps_select_url_app_caption" tools:ignore="MissingTranslation">Choose a web browser or video player app to open this URL on your TV.</string>
+    <string name="transfers_properties" tools:ignore="MissingTranslation">Properties</string>
+    <string name="transfers_properties_title" tools:ignore="MissingTranslation">File Properties</string>
+    <string name="transfers_copied" tools:ignore="MissingTranslation">Copied %1$s</string>
+    <string name="transfers_confirm_delete" tools:ignore="MissingTranslation">Delete %1$s from TV?</string>
     <string name="transfers_reading">Reading the app</string>
     <!-- %1$s is the app's name -->
     <string name="transfers_install_failed">Couldn\'t install %1$s</string>

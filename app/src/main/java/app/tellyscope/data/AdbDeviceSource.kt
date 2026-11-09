@@ -21,6 +21,7 @@ import app.tellyscope.adb.Sideload
 import app.tellyscope.adb.TvFacts
 import app.tellyscope.adb.TvFile
 import app.tellyscope.adb.TvFolder
+import app.tellyscope.adb.TvStorage
 import app.tellyscope.adb.Actions
 import app.tellyscope.adb.AdbSession
 import app.tellyscope.adb.ConnectionPrompt
@@ -1089,6 +1090,42 @@ class AdbDeviceSource(
         else remote(deviceId).press(key)
     }
 
+
+
+    override suspend fun setTvPointerOverlay(deviceId: String, enabled: Boolean): Boolean = busy(deviceId) {
+        remote(deviceId).setPointerOverlay(enabled)
+    }
+
+    override suspend fun moveCursor(deviceId: String, x: Int, y: Int): Boolean = busy(deviceId) {
+        remote(deviceId).move(x, y)
+    }
+
+    override suspend fun installMousePlugin(deviceId: String): Boolean = busy(deviceId) {
+        val s = session(deviceId)
+        try {
+            val bytes = appContext.assets.open("tellyscope-mouse-helper.apk").use { it.readBytes() }
+            val tmpPath = "/data/local/tmp/tellyscope-mouse-helper.apk"
+            s.push(bytes, tmpPath)
+            s.shell("pm install -r -g $tmpPath")
+            s.shell("settings put secure enabled_accessibility_services app.tellyscope.helper/.MouseOverlayService")
+            s.shell("settings put secure accessibility_enabled 1")
+            s.shell("settings put system show_touches 1")
+            s.shell("rm -f $tmpPath")
+            true
+        } catch (_: Exception) {
+            s.shell("settings put system show_touches 1").exitCode == 0
+        }
+    }
+
+    override suspend fun isMousePluginInstalled(deviceId: String): Boolean = busy(deviceId) {
+        val r = session(deviceId).shell("pm list packages app.tellyscope.helper")
+        r.exitCode == 0 && r.output.contains("package:app.tellyscope.helper")
+    }
+
+    override suspend fun drag(deviceId: String, x1: Int, y1: Int, x2: Int, y2: Int): Boolean = busy(deviceId) {
+        remote(deviceId).drag(x1, y1, x2, y2)
+    }
+
     /**
      * Keys per volume tap, so a tap moves about 1/[Remote.VOLUME_STEPS] of the range on any TV. Read
      * once per session; a reconnect reads it again.
@@ -1313,9 +1350,62 @@ class AdbDeviceSource(
         return busy(deviceId, reread = true) { Files(session).push(source, size, name, folder, onProgress) }
     }
 
+    override suspend fun pushToPath(deviceId: String, destDirPath: String, name: String, size: Long?, source: Source, onProgress: (Progress) -> Unit): String {
+        val session = liveSession(deviceId)
+        return busy(deviceId, reread = true) { Files(session).pushToPath(source, size, name, destDirPath, onProgress) }
+    }
+
     override suspend fun pull(deviceId: String, folder: TvFolder, file: TvFile, sink: Sink, onProgress: (Progress) -> Unit) {
         val session = liveSession(deviceId)
         busy(deviceId) { Files(session).pull(folder, file, sink, onProgress) }
+    }
+
+    override suspend fun pullPath(deviceId: String, path: String, size: Long, sink: Sink, onProgress: (Progress) -> Unit) {
+        val session = liveSession(deviceId)
+        busy(deviceId) { Files(session).pullPath(path, size, sink, onProgress) }
+    }
+
+    override suspend fun openFileWithApp(deviceId: String, filePath: String, pkg: String, mimeType: String): Boolean = busy(deviceId) {
+        Actions(session(deviceId)).openFileWithApp(filePath, pkg, mimeType)
+    }
+
+    override suspend fun openUrl(deviceId: String, url: String, pkg: String): Boolean = busy(deviceId) {
+        Actions(session(deviceId)).openUrl(url, pkg)
+    }
+
+    override suspend fun deleteFile(deviceId: String, folder: TvFolder, file: TvFile): Boolean {
+        val session = liveSession(deviceId)
+        return busy(deviceId, reread = true) { Files(session).delete(folder, file) }
+    }
+
+    override suspend fun copyFile(deviceId: String, fromFolder: TvFolder, file: TvFile, toFolder: TvFolder): Boolean {
+        val session = liveSession(deviceId)
+        return busy(deviceId, reread = true) { Files(session).copy(fromFolder, file, toFolder) }
+    }
+
+    override suspend fun listPath(deviceId: String, dirPath: String): List<TvFile> {
+        val session = liveSession(deviceId)
+        return Files(session).listPath(dirPath)
+    }
+
+    override suspend fun discoverStorages(deviceId: String): List<TvStorage> {
+        val session = liveSession(deviceId)
+        return Files(session).discoverStorages()
+    }
+
+    override suspend fun deletePath(deviceId: String, path: String): Boolean {
+        val session = liveSession(deviceId)
+        return busy(deviceId, reread = true) { Files(session).deletePath(path) }
+    }
+
+    override suspend fun copyPath(deviceId: String, srcPath: String, destDirPath: String): Boolean {
+        val session = liveSession(deviceId)
+        return busy(deviceId, reread = true) { Files(session).copyPath(srcPath, destDirPath) }
+    }
+
+    override suspend fun movePath(deviceId: String, srcPath: String, destDirPath: String): Boolean {
+        val session = liveSession(deviceId)
+        return busy(deviceId, reread = true) { Files(session).movePath(srcPath, destDirPath) }
     }
 
     private fun session(deviceId: String) =

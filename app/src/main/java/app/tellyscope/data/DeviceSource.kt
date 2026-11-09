@@ -13,6 +13,7 @@ import app.tellyscope.adb.RemoteKey
 import app.tellyscope.adb.TvFacts
 import app.tellyscope.adb.TvFile
 import app.tellyscope.adb.TvFolder
+import app.tellyscope.adb.TvStorage
 import app.tellyscope.adb.Tweak
 import app.tellyscope.adb.TvShell
 import app.tellyscope.adb.UpdateScreen
@@ -154,7 +155,29 @@ interface DeviceSource {
     /** Copies a phone file to the TV without overwriting anything; returns the name it got. */
     suspend fun push(deviceId: String, folder: TvFolder, name: String, size: Long?, source: Source, onProgress: (Progress) -> Unit): String
 
+    suspend fun pushToPath(deviceId: String, destDirPath: String, name: String, size: Long?, source: Source, onProgress: (Progress) -> Unit): String
+
     suspend fun pull(deviceId: String, folder: TvFolder, file: TvFile, sink: Sink, onProgress: (Progress) -> Unit)
+
+    suspend fun pullPath(deviceId: String, path: String, size: Long, sink: Sink, onProgress: (Progress) -> Unit)
+
+    suspend fun deleteFile(deviceId: String, folder: TvFolder, file: TvFile): Boolean
+
+    suspend fun copyFile(deviceId: String, fromFolder: TvFolder, file: TvFile, toFolder: TvFolder): Boolean
+
+    suspend fun listPath(deviceId: String, dirPath: String): List<TvFile>
+
+    suspend fun discoverStorages(deviceId: String): List<TvStorage>
+
+    suspend fun deletePath(deviceId: String, path: String): Boolean
+
+    suspend fun copyPath(deviceId: String, srcPath: String, destDirPath: String): Boolean
+
+    suspend fun movePath(deviceId: String, srcPath: String, destDirPath: String): Boolean
+
+    suspend fun openFileWithApp(deviceId: String, filePath: String, pkg: String, mimeType: String): Boolean
+
+    suspend fun openUrl(deviceId: String, url: String, pkg: String): Boolean
 
     /**
      * What the TV's list from tellyscope-devices suggests turning off. Never throws; offline it

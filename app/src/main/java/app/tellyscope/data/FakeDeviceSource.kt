@@ -16,6 +16,8 @@ import app.tellyscope.adb.RemoteKey
 import app.tellyscope.adb.TvFacts
 import app.tellyscope.adb.TvFile
 import app.tellyscope.adb.TvFolder
+import app.tellyscope.adb.TvStorage
+import app.tellyscope.adb.Files
 import app.tellyscope.adb.Tweak
 import app.tellyscope.adb.UpdateScreen
 import java.io.File
@@ -341,6 +343,20 @@ class FakeDeviceSource(
         return name
     }
 
+    override suspend fun pushToPath(deviceId: String, destDirPath: String, name: String, size: Long?, source: Source, onProgress: (Progress) -> Unit): String {
+        var done = 0L
+        val buf = Buffer()
+        while (true) {
+            val n = source.read(buf, 256 * 1024)
+            if (n < 0) break
+            buf.clear()
+            done += n
+            onProgress(Progress(done, size))
+            delay(50)
+        }
+        return name
+    }
+
     override suspend fun pull(deviceId: String, folder: TvFolder, file: TvFile, sink: Sink, onProgress: (Progress) -> Unit) {
         val chunk = ByteArray(64 * 1024)
         var done = 0L
@@ -353,6 +369,67 @@ class FakeDeviceSource(
         }
         sink.flush()
     }
+
+    override suspend fun pullPath(deviceId: String, path: String, size: Long, sink: Sink, onProgress: (Progress) -> Unit) {
+        val chunk = ByteArray(64 * 1024)
+        var done = 0L
+        while (done < size) {
+            val n = minOf(chunk.size.toLong(), size - done)
+            sink.write(Buffer().write(chunk, 0, n.toInt()), n)
+            done += n
+            onProgress(Progress(done, size))
+            delay(30)
+        }
+        sink.flush()
+    }
+
+    override suspend fun deleteFile(deviceId: String, folder: TvFolder, file: TvFile): Boolean {
+        tvFiles[folder]?.remove(file)
+        return true
+    }
+
+    override suspend fun copyFile(deviceId: String, fromFolder: TvFolder, file: TvFile, toFolder: TvFolder): Boolean {
+        val destList = tvFiles.getOrPut(toFolder) { mutableListOf() }
+        val newFile = file.copy(name = Files.uniqueName(file.name, destList.map { it.name }.toSet()))
+        destList.add(0, newFile)
+        return true
+    }
+
+    override suspend fun listPath(deviceId: String, dirPath: String): List<TvFile> = listOf(
+        TvFile("Documents", 0, clock(), isDir = true, path = "$dirPath/Documents"),
+        TvFile("Videos", 0, clock(), isDir = true, path = "$dirPath/Videos"),
+        TvFile("sample_video.mp4", 125_000_000, clock() - 3600_000L, isDir = false, path = "$dirPath/sample_video.mp4"),
+        TvFile("backup_data.zip", 45_000_000, clock() - 7200_000L, isDir = false, path = "$dirPath/backup_data.zip"),
+    )
+
+    override suspend fun discoverStorages(deviceId: String): List<TvStorage> = listOf(
+        TvStorage("Internal Storage", "/sdcard"),
+        TvStorage("Download", "/sdcard/Download"),
+        TvStorage("Movies", "/sdcard/Movies"),
+        TvStorage("Pictures", "/sdcard/Pictures"),
+        TvStorage("Music", "/sdcard/Music"),
+        TvStorage("Documents", "/sdcard/Documents"),
+        TvStorage("USB Pendrive 34GB", "/storage/pendrive34gb"),
+    )
+
+    override suspend fun deletePath(deviceId: String, path: String): Boolean = true
+
+    override suspend fun copyPath(deviceId: String, srcPath: String, destDirPath: String): Boolean = true
+
+    override suspend fun movePath(deviceId: String, srcPath: String, destDirPath: String): Boolean = true
+
+    override suspend fun setTvPointerOverlay(deviceId: String, enabled: Boolean): Boolean = true
+
+    override suspend fun moveCursor(deviceId: String, x: Int, y: Int): Boolean = true
+
+    override suspend fun installMousePlugin(deviceId: String): Boolean = true
+
+    override suspend fun isMousePluginInstalled(deviceId: String): Boolean = true
+
+    override suspend fun openFileWithApp(deviceId: String, filePath: String, pkg: String, mimeType: String): Boolean = true
+
+    override suspend fun openUrl(deviceId: String, url: String, pkg: String): Boolean = true
+
 
     private val baseFiles get() = listOf(
         TvFile("holiday-2025.mp4", 812_000_000, clock() - 3 * 86_400_000L),

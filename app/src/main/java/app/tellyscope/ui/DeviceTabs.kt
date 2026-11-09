@@ -9,6 +9,15 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -388,6 +397,7 @@ fun DeviceTabsScreen(
                         fun rows(apps: List<AppInfo>) = items(apps, key = { it.packageName }) { app ->
                             AppRow(app, procs, ui.pending, ui.busy == app.packageName, actions, locked = ui.busy != null, toHomeScreen = { if (searching) closeSearch(); tab = TvTab.Tweaks }, offline = offline, onScreen = ui.snapshot?.onScreen)
                         }
+                        if (!offline) item(key = "openUrl") { OpenUrlCard(state, actions, offline) }
                         // Until the first read lands, an empty list means "not yet", not "none".
                         val loading = ui.appsLoading && !offline
                         if (searching) {
@@ -430,22 +440,8 @@ fun DeviceTabsScreen(
                         }
                     }
                     TvTab.Files -> {
-                        // Pinned under the bar once the hero has folded into it, like the Apps tabs.
-                        stickyHeader(key = "folders") {
-                            PinnedSegments(TvFolder.entries.map { Copy.folder(it).resolve() }, ui.files.folder.ordinal, lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainer, collapse), inset = 16.dp) {
-                                if (!offline) actions.folder(TvFolder.entries[it])
-                            }
-                        }
-                        val folder = ui.files.folder
                         when {
                             offline -> item { EmptyState(awayIcon, awayTitle, if (offWifi) Copy.OFF_WIFI_LINE.resolve() else stringResource(R.string.tabs_files_offline)) }
-                            ui.files.error == null && ui.files.list?.isEmpty() == true -> item {
-                                EmptyState(
-                                    if (folder == TvFolder.MOVIES) TileIcons.Movie else TabIcons.Folder,
-                                    stringResource(R.string.tabs_folder_empty, Copy.folder(folder).resolve()),
-                                    stringResource(R.string.tabs_folder_empty_line),
-                                )
-                            }
                             else -> item { FilesBlock(ui.files, state.clock(), actions) }
                         }
                     }
@@ -462,9 +458,132 @@ fun DeviceTabsScreen(
             if (!offline) ui.request?.let { RequestDialog(it, ui.busy == ANSWERING, actions.answerRequest, actions.dismissRequest, actions.closeAlert) }
             ui.sideload?.let { SideloadDialog(it, actions) }
             ui.transfer?.let { TransferDialog(it, actions.cancelTransfer) }
+            ui.openWith?.let { OpenWithDialog(it, onSelect = { app -> actions.openFileWith(it.file, app) }, onDismiss = actions.closeOpenWith) }
+            if (state.urlPickerOpen) SelectUrlAppDialog(state, actions)
         }
         // Over everything, so the cookie and name can pass from the list into the bar.
         if (!searching) HeroMorphOverlay(device, morph) { collapse }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun OpenUrlCard(state: UiState, actions: DeviceActions, offline: Boolean) {
+    if (offline) return
+    var urlText by rememberSaveable { mutableStateOf("") }
+    val defaultApp = state.defaultUrlApp
+    val haptic = LocalHapticFeedback.current
+
+    fun launchUrl(forcePicker: Boolean = false) {
+        if (urlText.isNotBlank()) {
+            actions.openUrl(urlText.trim(), forcePicker)
+        }
+    }
+
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.apps_open_url_label), style = MaterialTheme.typography.titleSmall)
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = urlText,
+                    onValueChange = { urlText = it },
+                    placeholder = { Text(stringResource(R.string.apps_open_url_placeholder)) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions = KeyboardActions(onGo = { launchUrl() }),
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (urlText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = if (urlText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .combinedClickable(
+                            enabled = urlText.isNotBlank(),
+                            onClick = { launchUrl(forcePicker = false) },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                launchUrl(forcePicker = true)
+                            },
+                        ),
+                ) {
+                    Box(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
+                        Text(stringResource(R.string.apps_open_url_button), style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
+            if (defaultApp != null) {
+                Text(
+                    stringResource(R.string.apps_open_url_default_hint, defaultApp.label),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectUrlAppDialog(state: UiState, actions: DeviceActions) {
+    val launchableApps = remember(state.device.apps) { state.device.apps.filter { it.launchable } }
+    ModalBottomSheet(
+        onDismissRequest = actions.closeUrlPicker,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp),
+        ) {
+            Text(
+                stringResource(R.string.apps_select_url_app_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                stringResource(R.string.apps_select_url_app_caption),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+            )
+            if (launchableApps.isEmpty()) {
+                Text(
+                    stringResource(R.string.transfers_no_apps_found),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.height(280.dp),
+                ) {
+                    items(launchableApps) { app ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.medium)
+                                .clickable { actions.selectUrlApp(app) }
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AppIcon(app, Modifier.size(40.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(app.label, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

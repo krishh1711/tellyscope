@@ -36,8 +36,10 @@ import okio.Sink
 import okio.Source
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -165,5 +167,43 @@ class TransfersAndUndoTest {
         vm.undo(HistoryEntry(6, "tv-a", 0, Action.Change, "NO_SUCH_TWEAK", "X", Action.Change, null, mapOf("k" to "v")), "tv-a")
         runCurrent()
         assertEquals(Copy.CANT_UNDO, vm.notice.value)
+    }
+
+    @Test fun testDeleteAndCopyFileState() = with(test) {
+        vm = TellyscopeViewModel(source, Phone, clock = { 0L })
+        runCurrent()
+        val file = app.tellyscope.adb.TvFile("test.mp4", 100, 0)
+        vm.copyFile(TvFolder.DOWNLOAD, file)
+        runCurrent()
+        assertNotNull(vm.state.value.device.files.copiedFile)
+        assertEquals("test.mp4", vm.state.value.device.files.copiedFile?.file?.name)
+        vm.clearCopiedFile()
+        runCurrent()
+        assertNull(vm.state.value.device.files.copiedFile)
+    }
+
+    @Test fun testCutCopyAndPastePathState() = with(test) {
+        vm = TellyscopeViewModel(source, Phone, clock = { 0L })
+        runCurrent()
+        vm.cutPath("sample.mp4", "/sdcard/Download/sample.mp4")
+        runCurrent()
+        assertNotNull(vm.state.value.device.files.fileClip)
+        assertEquals(app.tellyscope.ui.FileOpMode.CUT, vm.state.value.device.files.fileClip?.mode)
+        vm.clearCopiedFile()
+        runCurrent()
+        assertNull(vm.state.value.device.files.fileClip)
+    }
+
+    @Test fun testOpenUrlAndAppPicker() = with(test) {
+        vm = TellyscopeViewModel(source, Phone, clock = { 0L })
+        runCurrent()
+        vm.openUrl("https://example.com", forcePicker = true)
+        runCurrent()
+        assertTrue(vm.state.value.urlPickerOpen)
+        assertEquals("https://example.com", vm.state.value.pendingUrl)
+        vm.closeUrlPicker()
+        runCurrent()
+        assertFalse(vm.state.value.urlPickerOpen)
+        assertNull(vm.state.value.pendingUrl)
     }
 }

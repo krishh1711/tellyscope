@@ -21,6 +21,7 @@ import app.tellyscope.adb.Reports
 import app.tellyscope.adb.TvFacts
 import app.tellyscope.adb.TvFile
 import app.tellyscope.adb.TvFolder
+import app.tellyscope.adb.TvStorage
 import app.tellyscope.adb.Tweak
 import app.tellyscope.adb.UpdateScreen
 import app.tellyscope.adb.installKind
@@ -156,6 +157,7 @@ data class DeviceUi(
     val peripherals: List<Peripheral>? = null,
     /** "Remove all other access", while it runs; null otherwise. */
     val removal: Removal? = null,
+    val openWith: OpenWithUi? = null,
     /** Install a home screen, while it's open; null otherwise. */
     val launcher: LauncherFlow? = null,
     /** Not now on the Apps tab's home-screen card, for this TV. True until read, so the card never flashes. */
@@ -300,11 +302,23 @@ data class ReportUi(
     val posted: Report? = null,
 )
 
+enum class FileOpMode { COPY, CUT }
+
+data class FileClip(val name: String, val path: String, val mode: FileOpMode)
+
+data class CopiedFile(val folder: TvFolder, val file: TvFile)
+
+data class OpenWithUi(val file: TvFile, val apps: List<AppInfo>)
+
 data class FilesUi(
     val folder: TvFolder = TvFolder.DOWNLOAD,
     /** Null while loading. */
     val list: List<TvFile>? = null,
+    val currentPath: String = folder.path,
+    val storages: List<TvStorage> = emptyList(),
     val error: UiText? = null,
+    val copiedFile: CopiedFile? = null,
+    val fileClip: FileClip? = null,
 )
 
 data class TransferUi(val name: String, val toTv: Boolean, val folder: TvFolder, val progress: Progress? = null)
@@ -351,7 +365,12 @@ data class UiState(
     val report: ReportUi? = null,
     /** When each TV's History was last opened, by id. */
     val historySeen: Map<String, Long> = emptyMap(),
+    val defaultUrlAppPkg: String? = null,
+    val urlPickerOpen: Boolean = false,
+    val pendingUrl: String? = null,
+
 ) {
+    val defaultUrlApp: AppInfo? get() = defaultUrlAppPkg?.let { pkg -> device.apps.firstOrNull { it.packageName == pkg } }
     /** The selected TV has a change since its History was last opened: ⋮ shows a dot. */
     val historyNew: Boolean get() = selectedId?.let { id -> device.history.any { it.at > (historySeen[id] ?: 0L) } } == true
     val selected: Device? get() = devices.firstOrNull { it.id == selectedId }
@@ -1498,27 +1517,54 @@ class TellyscopeViewModel(
     }
 
     fun folder(folder: TvFolder) {
-        _state.update { it.copy(device = it.device.copy(files = FilesUi(folder))) }
-        viewModelScope.launch { loadFiles() }
+        val path = folder.path
+        _state.update { s -> s.copy(device = s.device.copy(files = s.device.files.copy(folder = folder, currentPath = path, list = null))) }
+        viewModelScope.launch { loadFilesForPath(path) }
+    }
+
+    fun selectStorage(path: String) {
+        _state.update { s -> s.copy(device = s.device.copy(files = s.device.files.copy(currentPath = path, list = null))) }
+        viewModelScope.launch { loadFilesForPath(path) }
+    }
+
+    fun navigatePath(path: String) {
+        _state.update { s -> s.copy(device = s.device.copy(files = s.device.files.copy(currentPath = path, list = null))) }
+        viewModelScope.launch { loadFilesForPath(path) }
     }
 
     private suspend fun loadFiles() {
+        loadFilesForPath(_state.value.device.files.currentPath)
+    }
+
+    private suspend fun loadFilesForPath(path: String) {
         val id = _state.value.selectedId ?: return
-        val folder = _state.value.device.files.folder
-        val ui = try {
-            FilesUi(folder, source.files(id, folder))
+        val currentUi = _state.value.device.files
+        val storages = if (currentUi.storages.isEmpty()) {
+            runCatching { source.discoverStorages(id) }.getOrElse { emptyList() }
+        } else currentUi.storages
+
+        val list = try {
+            source.listPath(id, path)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            FilesUi(folder, emptyList(), Copy.FILES_LOST)
+            emptyList()
         }
-        _state.update { s -> if (s.device.files.folder == folder) s.copy(device = s.device.copy(files = ui)) else s }
+
+        val updatedUi = currentUi.copy(
+            currentPath = path,
+            storages = storages,
+            list = list,
+            error = if (list == null) Copy.FILES_LOST else null,
+        )
+        _state.update { s -> s.copy(device = s.device.copy(files = updatedUi)) }
     }
 
     /** Copies a phone file into the folder on show. Never overwrites: a taken name gets " (1)". */
     fun push(uri: Uri) {
         val id = _state.value.selectedId ?: return
         val storage = storage ?: return
+        val currentPath = _state.value.device.files.currentPath
         val folder = _state.value.device.files.folder
         transferJobs[id] = viewModelScope.launch {
             val file = try {
@@ -1530,12 +1576,12 @@ class TellyscopeViewModel(
             setTransfer(id, TransferUi(file.name, toTv = true, folder = folder))
             try {
                 val saved = file.source.use { src ->
-                    source.push(id, folder, file.name, file.size, src) { p -> updateTransfer(id) { it.copy(progress = p) } }
+                    source.pushToPath(id, currentPath, file.name, file.size, src) { p -> updateTransfer(id) { it.copy(progress = p) } }
                 }
                 // Close the dialog before the reload: a Cancel tapped now would report a sent file as cancelled.
                 setTransfer(id, null)
                 _notice.value = Copy.sent(file.name, saved, folder)
-                loadFiles()
+                loadFilesForPath(currentPath)
             } catch (e: CancellationException) {
                 _notice.value = Copy.CANCELLED_SEND
                 throw e
@@ -1566,11 +1612,12 @@ class TellyscopeViewModel(
         val id = _state.value.selectedId ?: return
         val storage = storage ?: return
         val folder = _state.value.device.files.folder
+        val filePath = file.path.ifEmpty { "${folder.path}/${file.name}" }
         setTransfer(id, TransferUi(file.name, toTv = false, folder = folder, progress = Progress(0, file.size)))
         transferJobs[id] = viewModelScope.launch {
             try {
                 storage.create(uri).use { sink ->
-                    source.pull(id, folder, file, sink) { p -> updateTransfer(id) { it.copy(progress = p) } }
+                    source.pullPath(id, filePath, file.size, sink) { p -> updateTransfer(id) { it.copy(progress = p) } }
                 }
                 _notice.value = Copy.saved(file.name)
             } catch (e: CancellationException) {

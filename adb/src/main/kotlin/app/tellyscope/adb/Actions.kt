@@ -58,6 +58,27 @@ class Actions(private val shell: AdbShell) {
         }
     }
 
+    /** Opens [filePath] on TV using app [pkg] with intent action VIEW and [mimeType]. */
+    suspend fun openFileWithApp(filePath: String, pkg: String, mimeType: String): Boolean {
+        require(PACKAGE.matches(pkg)) { "not a package name: $pkg" }
+        val uri = "file://${filePath}"
+        val cmd = "am start -a android.intent.action.VIEW -d ${shellQuote(uri)} -t ${shellQuote(mimeType)} -p ${shellQuote(pkg)} 2>&1"
+        val r = shell.shell(cmd)
+        if (r.exitCode == 0 && !r.output.contains("Error") && !r.output.contains("Exception")) return true
+        return open(pkg) is ActionResult.Done
+    }
+
+    /** Opens [url] on TV using app [pkg] with intent action VIEW. */
+    suspend fun openUrl(url: String, pkg: String): Boolean {
+        require(PACKAGE.matches(pkg)) { "not a package name: $pkg" }
+        val cmd = "am start -a android.intent.action.VIEW -d ${shellQuote(url)} -p ${shellQuote(pkg)} 2>&1"
+        val r = shell.shell(cmd)
+        if (r.exitCode == 0 && !r.output.contains("Error") && !r.output.contains("Exception")) return true
+        val altCmd = "am start -a android.intent.action.VIEW -d ${shellQuote(url)} 2>&1"
+        val r2 = shell.shell(altCmd)
+        return r2.exitCode == 0 && !r2.output.contains("Error")
+    }
+
     /**
      * Only for packages `pm list packages -3` lists, i.e. installed by the user. Plain
      * `pm uninstall`, never `--user 0`: that form removes system apps for a user, and Tellyscope
