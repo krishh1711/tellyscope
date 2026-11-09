@@ -6,6 +6,8 @@ import android.os.SystemClock
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -68,6 +71,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -139,6 +145,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.toggleable
@@ -176,6 +183,7 @@ import app.tellyscope.data.Device
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import app.tellyscope.R
+import app.tellyscope.data.RemoteMode
 import app.tellyscope.data.UiText
 import app.tellyscope.data.resolve
 
@@ -200,6 +208,18 @@ data class RemoteActions(
     val checkVolume: () -> Unit = {},
     /** The touchpad (true) or the D-pad in the D-pad's place, kept for this phone. */
     val touchpad: (Boolean) -> Unit = {},
+    /** Sets the active remote control mode: DPAD, TOUCHPAD, or MOUSE. */
+    val setRemoteMode: (RemoteMode) -> Unit = {},
+    /** Sends an ADB tap at (x, y) coordinates on the TV screen. */
+    val tap: (Int, Int) -> Unit = { _, _ -> },
+    /** Sends an ADB mouse cursor move event to (x, y) coordinates on the TV screen. */
+    val moveCursor: (Int, Int) -> Unit = { _, _ -> },
+    /** Sends an ADB drag from (x1, y1) to (x2, y2) coordinates on the TV screen. */
+    val drag: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
+    /** Toggles the TV on-screen mouse cursor pointer overlay via ADB. */
+    val togglePointerOverlay: () -> Unit = {},
+    /** Sideloads and installs the TV Mouse Helper plugin app from assets onto the TV. */
+    val installMousePlugin: () -> Unit = {},
 )
 
 /** A held key repeats after this, then every [REPEAT_EVERY_MS], or slower if the TV is slower. */
@@ -292,7 +312,13 @@ fun RemoteScreen(
     }
     // A swipe pad can't be explored by touch, so TalkBack always gets the D-pad.
     val talkBack = talkBackOn()
-    val pad = state.touchpad && !talkBack
+    var activeMode by rememberSaveable { mutableStateOf(if (talkBack) RemoteMode.DPAD else state.remoteMode) }
+    val currentMode = if (talkBack) RemoteMode.DPAD else activeMode
+    val modes = remember(state.mouseEnabled) {
+        if (state.mouseEnabled) listOf(RemoteMode.DPAD, RemoteMode.TOUCHPAD, RemoteMode.MOUSE)
+        else listOf(RemoteMode.DPAD, RemoteMode.TOUCHPAD)
+    }
+
     if (editing) ButtonsSheet(state.device.dock, state.device.apps, cap, actions.setDock, onDismiss = { editing = false })
     val services = SharedLists.state.collectAsState().value.streaming
     val streamingApps = remember(state.device.apps, services) { RemoteButtons.streamingApps(state.device.apps, services) }
@@ -330,12 +356,50 @@ fun RemoteScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 RemoteHeader(state, device, restart, screenOff, onRestartTap = { hidden = null }) {
-                    HeaderMenu(screenControl, screenOff, live, showTip = state.screenOffTip, actions, pad = if (talkBack) null else pad, onRestart = { confirmReboot = true }, onButtons = { editing = true })
+                    HeaderMenu(screenControl, screenOff, live, showTip = state.screenOffTip, actions, currentMode = if (talkBack) null else currentMode, onRestart = { confirmReboot = true }, onButtons = { editing = true })
                 }
                 CompositionLocalProvider(LocalKeyHaptics provides state.keyHaptics) { Column(
                     Modifier.weight(1f).alpha(if (live) 1f else 0.38f),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    if (!talkBack && !typing) {
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        ) {
+                            modes.forEachIndexed { index, mode ->
+                                SegmentedButton(
+                                    selected = currentMode == mode,
+                                    onClick = {
+                                        activeMode = mode
+                                        actions.setRemoteMode(mode)
+                                    },
+                                    shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
+                                    icon = {},
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            when (mode) {
+                                                RemoteMode.DPAD -> RemoteIcons.Gamepad
+                                                RemoteMode.TOUCHPAD -> RemoteIcons.TouchApp
+                                                RemoteMode.MOUSE -> RemoteIcons.Mouse
+                                            },
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            when (mode) {
+                                                RemoteMode.DPAD -> stringResource(R.string.remote_dpad)
+                                                RemoteMode.TOUCHPAD -> stringResource(R.string.remote_touchpad)
+                                                RemoteMode.MOUSE -> stringResource(R.string.remote_mouse)
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         // Mute over the keyboard key, matching the rocker on the other side.
                         if (short) Column(Modifier.width(56.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -347,10 +411,11 @@ fun RemoteScreen(
                             val cramped = room < DPAD_MIN
                             val hintFits = room >= DPAD_MIN + 24.dp
                             LaunchedEffect(cramped, hintFits) { if (cramped) tight = true else if (hintFits) tight = false }
-                            // 12 dp clear above and below while there's room; the gap gives way before the pad does,
-                            // and the pad never outgrows its box, so it can't overlap the header or the keys.
-                            if (pad) Touchpad(live, actions.press, Modifier.fillMaxSize().padding(vertical = 12.dp))
-                            else DPad(live, actions.press, (room - 24.dp).coerceIn(DPAD_MIN, DPAD_MAX).coerceAtMost(room))
+                            when (currentMode) {
+                                RemoteMode.TOUCHPAD -> Touchpad(live, actions.press, Modifier.fillMaxSize().padding(vertical = 12.dp))
+                                RemoteMode.MOUSE -> Mousepad(live, state.isMouseHelperInstalled, actions.tap, actions.moveCursor, actions.installMousePlugin, actions.press, Modifier.fillMaxSize().padding(vertical = 12.dp))
+                                RemoteMode.DPAD -> DPad(live, actions.press, (room - 24.dp).coerceIn(DPAD_MIN, DPAD_MAX).coerceAtMost(room))
+                            }
                         }
                         // Up above down, like the rocker on the side of a real remote.
                         if (short) Column(Modifier.width(56.dp).then(volumeAlpha), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -736,6 +801,176 @@ private fun Touchpad(enabled: Boolean, press: suspend (RemoteKey) -> Boolean, mo
     }
 }
 
+/**
+ * A clean virtual mouse control surface with cursor positioning, click, and Left/Right Click action buttons.
+ */
+@Composable
+private fun Mousepad(
+    enabled: Boolean,
+    isHelperInstalled: Boolean,
+    onTap: (Int, Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onInstallPlugin: () -> Unit,
+    pressKey: suspend (RemoteKey) -> Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val haptics = LocalKeyHaptics.current
+    val c = MaterialTheme.colorScheme
+
+    var cursorX by remember { mutableFloatStateOf(0.5f) }
+    var cursorY by remember { mutableFloatStateOf(0.5f) }
+
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = c.surfaceContainerHigh,
+        modifier = modifier,
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // TV Pointer Status & Installer Bar
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        RemoteIcons.Mouse,
+                        contentDescription = null,
+                        tint = c.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        stringResource(R.string.remote_mouse_tv_cursor_title),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.onSurface,
+                    )
+                }
+                if (isHelperInstalled) {
+                    Surface(
+                        shape = CircleShape,
+                        color = c.primaryContainer,
+                        contentColor = c.onPrimaryContainer,
+                    ) {
+                        Text(
+                            stringResource(R.string.remote_mouse_helper_installed),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                } else {
+                    TextButton(
+                        onClick = onInstallPlugin,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.remote_mouse_install_helper),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
+
+            // Interactive Mouse Pad Surface
+            BoxWithConstraints(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(c.surface)
+                    .border(1.dp, c.outlineVariant, RoundedCornerShape(16.dp))
+                    .pointerInput(enabled, haptics) {
+                        if (!enabled) return@pointerInput
+                        detectTapGestures(
+                            onTap = {
+                                if (haptics) haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                onTap((cursorX * 1920).toInt(), (cursorY * 1080).toInt())
+                            },
+                        )
+                    }
+                    .pointerInput(enabled, haptics) {
+                        if (!enabled) return@pointerInput
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            val width = size.width.coerceAtLeast(1)
+                            val height = size.height.coerceAtLeast(1)
+
+                            val dx = (dragAmount.x / width) * 1.5f
+                            val dy = (dragAmount.y / height) * 1.5f
+                            cursorX = (cursorX + dx).coerceIn(0f, 1f)
+                            cursorY = (cursorY + dy).coerceIn(0f, 1f)
+
+                            onMove((cursorX * 1920).toInt(), (cursorY * 1080).toInt())
+                        }
+                    },
+            ) {
+                val cursorSize = 24.dp
+                val maxOffsetX = maxWidth - cursorSize
+                val maxOffsetY = maxHeight - cursorSize
+
+                Text(
+                    stringResource(R.string.remote_mouse_move),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp),
+                )
+
+                // Simulated TV Screen Mouse Cursor Pointer
+                Box(
+                    Modifier
+                        .offset(x = maxOffsetX * cursorX, y = maxOffsetY * cursorY)
+                        .size(cursorSize)
+                        .clip(CircleShape)
+                        .background(c.primary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        RemoteIcons.Mouse,
+                        contentDescription = null,
+                        tint = c.onPrimary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Mouse Action Buttons: Left Click & Right Click
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    onClick = {
+                        if (haptics) haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        onTap((cursorX * 1920).toInt(), (cursorY * 1080).toInt())
+                    },
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.remote_mouse_left_click))
+                }
+                Button(
+                    onClick = {
+                        if (haptics) haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        scope.launch { pressKey(RemoteKey.MENU) }
+                    },
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.remote_mouse_right_click))
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun RebootDialog(onRestart: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
@@ -822,7 +1057,7 @@ private fun StatusShape(icon: ImageVector, container: Color, content: Color) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HeaderMenu(screenControl: Boolean, off: Boolean, live: Boolean, showTip: Boolean, actions: RemoteActions, pad: Boolean?, onRestart: () -> Unit, onButtons: () -> Unit) {
+private fun HeaderMenu(screenControl: Boolean, off: Boolean, live: Boolean, showTip: Boolean, actions: RemoteActions, currentMode: RemoteMode?, onRestart: () -> Unit, onButtons: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     val tip = rememberTooltipState(isPersistent = true)
     LaunchedEffect(showTip, screenControl) {
@@ -869,16 +1104,24 @@ private fun HeaderMenu(screenControl: Boolean, off: Boolean, live: Boolean, show
                 enabled = live,
                 onClick = { open = false; onRestart() },
             )
-            // D-pad or touchpad, the current one checked; left out while TalkBack keeps the D-pad.
-            if (pad != null) {
+            // Mode selector (D-pad, touchpad, mouse), left out while TalkBack keeps the D-pad.
+            if (currentMode != null) {
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                for ((touch, label, glyph) in listOf(Triple(false, R.string.remote_dpad, RemoteIcons.Gamepad), Triple(true, R.string.remote_touchpad, RemoteIcons.TouchApp))) {
+                for ((mode, label, glyph) in listOf(
+                    Triple(RemoteMode.DPAD, R.string.remote_dpad, RemoteIcons.Gamepad),
+                    Triple(RemoteMode.TOUCHPAD, R.string.remote_touchpad, RemoteIcons.TouchApp),
+                    Triple(RemoteMode.MOUSE, R.string.remote_mouse, RemoteIcons.Mouse),
+                )) {
                     DropdownMenuItem(
                         text = { Text(stringResource(label)) },
                         leadingIcon = { Icon(glyph, null) },
-                        trailingIcon = { if (pad == touch) Icon(Icons.Default.Check, null) },
-                        modifier = Modifier.semantics { selected = pad == touch },
-                        onClick = { open = false; actions.touchpad(touch) },
+                        trailingIcon = { if (currentMode == mode) Icon(Icons.Default.Check, null) },
+                        modifier = Modifier.semantics { selected = currentMode == mode },
+                        onClick = {
+                            open = false
+                            actions.setRemoteMode(mode)
+                            actions.touchpad(mode == RemoteMode.TOUCHPAD)
+                        },
                     )
                 }
             }
@@ -1205,6 +1448,7 @@ private fun ServiceRow(
 }
 
 private object RemoteIcons {
+    val Mouse = icon("Mouse", "M13 1.07V9H19C19 4.62 15.62 1.24 11.25 1.07M11 1.07C6.63 1.24 3.25 4.62 3.25 9H11V1.07M19 11H3V15C3 19.42 6.58 23 11 23C15.42 23 19 19.42 19 15V11Z")
     // Absolute commands only: Compose's path parser misplaces a relative move after a close.
     val TvOff = icon(
         "TvOff",

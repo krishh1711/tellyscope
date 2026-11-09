@@ -22,4 +22,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "tellyscope"
-include(":app", ":adb", ":cli")
+include(":app", ":adb", ":cli", ":companion")

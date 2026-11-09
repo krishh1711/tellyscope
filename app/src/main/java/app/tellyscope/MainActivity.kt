@@ -336,6 +336,10 @@ fun TellyscopeApp(vm: TellyscopeViewModel) {
             onCheckUpdates = vm::setCheckUpdates,
             keyHaptics = state.keyHaptics,
             onKeyHaptics = vm::setKeyHaptics,
+            mouseEnabled = state.mouseEnabled,
+            onMouseEnabled = vm::setMouseEnabled,
+            tvPointerOverlay = state.tvPointerOverlay,
+            onTvPointerOverlay = vm::setTvPointerOverlay,
             onReport = { vm.openReport(ReportKind.Problem) },
             onWhatsNew = { whatsNew = true },
             back = { settings = false },
@@ -479,6 +483,12 @@ fun TellyscopeApp(vm: TellyscopeViewModel) {
                     screenOffTipSeen = vm::screenOffTipSeen,
                     checkVolume = vm::checkVolume,
                     touchpad = vm::setTouchpad,
+                    setRemoteMode = vm::setRemoteMode,
+                    tap = vm::tap,
+                    moveCursor = vm::moveCursor,
+                    drag = vm::drag,
+                    togglePointerOverlay = { vm.setTvPointerOverlay(!state.tvPointerOverlay) },
+                    installMousePlugin = vm::installMousePlugin,
                 ),
             )
         }

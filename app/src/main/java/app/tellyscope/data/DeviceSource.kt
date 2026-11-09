@@ -199,8 +199,26 @@ interface DeviceSource {
      */
     suspend fun setListSource(url: String?)
 
+    /** Enables or disables on-screen TV mouse pointer overlay via ADB shell. */
+    suspend fun setTvPointerOverlay(deviceId: String, enabled: Boolean): Boolean
+
+    /** Moves TV mouse cursor to (x, y). */
+    suspend fun moveCursor(deviceId: String, x: Int, y: Int): Boolean
+
+    /** Deploys TV Mouse Pointer Plugin helper to the TV. */
+    suspend fun installMousePlugin(deviceId: String): Boolean
+
+    /** Checks if TV Mouse Helper plugin is installed on the TV. */
+    suspend fun isMousePluginInstalled(deviceId: String): Boolean
+
     /** One remote key. False when the TV answered with an error; throws when it's gone. */
     suspend fun press(deviceId: String, key: RemoteKey): Boolean
+
+    /** Taps coordinates on the TV screen. */
+    suspend fun tap(deviceId: String, x: Int, y: Int): Boolean
+
+    /** Drags across coordinates on the TV screen. */
+    suspend fun drag(deviceId: String, x1: Int, y1: Int, x2: Int, y2: Int): Boolean
 
     /** The remote screen closed: stop anything [press] left running on the TVs. */
     fun closeRemote() {}

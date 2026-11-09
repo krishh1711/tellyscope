@@ -1083,7 +1083,9 @@ class AdbDeviceSource(
         keep[key] = list?.keep.orEmpty()
         return Resolved(index, match, list, out.getOrNull(MATCH_KEYS.size)?.toIntOrNull())
     }
-
+    override suspend fun tap(deviceId: String, x: Int, y: Int): Boolean = busy(deviceId) {
+        remote(deviceId).tap(x, y)
+    }
     override suspend fun press(deviceId: String, key: RemoteKey) = busy(deviceId) {
         if (key == RemoteKey.HOME) remote(deviceId).home(fireHome(deviceId))
         else if (key == RemoteKey.VOLUME_UP || key == RemoteKey.VOLUME_DOWN) remote(deviceId).volume(key, volumeKeys(deviceId))

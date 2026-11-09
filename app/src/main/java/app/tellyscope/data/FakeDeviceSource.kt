@@ -458,6 +458,16 @@ class FakeDeviceSource(
         return true
     }
 
+    override suspend fun tap(deviceId: String, x: Int, y: Int): Boolean {
+        delay(60)
+        return true
+    }
+
+    override suspend fun drag(deviceId: String, x1: Int, y1: Int, x2: Int, y2: Int): Boolean {
+        delay(60)
+        return true
+    }
+
     override suspend fun type(deviceId: String, text: String): Boolean {
         delay(150)
         return true

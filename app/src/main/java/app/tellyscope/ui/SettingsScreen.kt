@@ -99,6 +99,10 @@ fun SettingsScreen(
     back: () -> Unit,
     keyHaptics: Boolean = true,
     onKeyHaptics: (Boolean) -> Unit = {},
+    mouseEnabled: Boolean = true,
+    onMouseEnabled: (Boolean) -> Unit = {},
+    tvPointerOverlay: Boolean = false,
+    onTvPointerOverlay: (Boolean) -> Unit = {},
     onReport: () -> Unit = {},
     onWhatsNew: () -> Unit = {},
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
@@ -156,6 +160,34 @@ fun SettingsScreen(
                         }
                         Spacer(Modifier.width(16.dp))
                         Switch(checked = keyHaptics, onCheckedChange = null)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surface)
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .toggleable(mouseEnabled, role = Role.Switch, onValueChange = onMouseEnabled)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.settings_mouse_enabled_title), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.settings_mouse_enabled_text), style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Switch(checked = mouseEnabled, onCheckedChange = null)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surface)
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .toggleable(tvPointerOverlay, role = Role.Switch, onValueChange = onTvPointerOverlay)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.settings_tv_pointer_title), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.settings_tv_pointer_text), style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Switch(checked = tvPointerOverlay, onCheckedChange = null)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.surface)
                     Row(Modifier.fillMaxWidth().clickable(onClick = onWhatsNew).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

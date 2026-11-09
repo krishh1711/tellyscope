@@ -108,6 +108,38 @@ class Remote(private val session: AdbSession, private val keys: KeyHelper? = nul
     suspend fun type(text: String): Boolean =
         keys?.type(text) ?: (typeable(text) && session.shell(typeCommand(text)).exitCode == 0)
 
+    /** Sends ADB input tap at coordinates ([x], [y]) on the TV screen. */
+    suspend fun tap(x: Int, y: Int): Boolean {
+        val fx = x.coerceIn(0, 1920)
+        val fy = y.coerceIn(0, 1080)
+        val rx = fx / 1920f
+        val ry = fy / 1080f
+        session.shell("am broadcast -a app.tellyscope.helper.CLICK --ef x $rx --ef y $ry 2>/dev/null")
+        return session.shell("input tap $fx $fy").exitCode == 0
+    }
+
+    /** Sends ADB pointer motion move event to coordinates ([x], [y]) on the TV screen. */
+    suspend fun move(x: Int, y: Int): Boolean {
+        val fx = x.coerceIn(0, 1920)
+        val fy = y.coerceIn(0, 1080)
+        val rx = fx / 1920f
+        val ry = fy / 1080f
+        session.shell("am broadcast -a app.tellyscope.helper.MOVE --ef x $rx --ef y $ry 2>/dev/null")
+        return session.shell("input swipe $fx $fy $fx $fy 10").exitCode == 0
+    }
+
+    /** Enables or disables TV system on-screen touch/pointer overlay and triggers MATVT/KeyCursor overlay. */
+    suspend fun setPointerOverlay(enabled: Boolean): Boolean {
+        val v = if (enabled) "1" else "0"
+        session.shell("am broadcast -a ru.vasys.keycursor.action.MOUSE_TOGGLE -n ru.vasys.keycursor/.input.ExternalTriggerReceiver 2>/dev/null")
+        session.shell("settings put global pointer_speed 7 2>/dev/null")
+        return session.shell("settings put system show_touches $v; settings put system pointer_location $v").exitCode == 0
+    }
+
+    /** Sends ADB input swipe / drag from ([x1], [y1]) to ([x2], [y2]) over [durationMs] on the TV. */
+    suspend fun drag(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int = 300): Boolean =
+        session.shell("input swipe $x1 $y1 $x2 $y2 $durationMs").exitCode == 0
+
     /**
      * Turns the TV's picture off or back on, leaving the TV awake so the link stays up. Only the
      * key helper can: false when it isn't running or the TV refused. Throws if the link is gone.

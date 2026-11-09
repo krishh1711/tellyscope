@@ -36,6 +36,7 @@ import app.tellyscope.data.Dock
 import app.tellyscope.data.Docked
 import app.tellyscope.data.HistoryEntry
 import app.tellyscope.data.KeyHaptics
+import app.tellyscope.data.RemoteMode
 import app.tellyscope.data.KnownLauncher
 import app.tellyscope.data.LauncherDownload
 import app.tellyscope.data.LauncherPick
@@ -357,13 +358,18 @@ data class UiState(
     val volumeFixed: Set<String> = emptySet(),
     /** The Remote shows the touchpad instead of the D-pad. Per phone, not per TV. */
     val touchpad: Boolean = false,
+    /** Active remote mode: DPAD, TOUCHPAD, or MOUSE. */
+    val remoteMode: RemoteMode = RemoteMode.DPAD,
+    /** Whether the TV shows an on-screen mouse pointer / touch location overlay. */
+    val tvPointerOverlay: Boolean = false,
     /** Debloat with nothing left on the list explains why it opens Apps, until Don't show again. */
     val debloatGate: Boolean = true,
     /** The Apps tabs whose System section the user folded away. */
     val foldedSystem: Set<AppsTab> = emptySet(),
     /** The report screen; null when it's closed. */
     val report: ReportUi? = null,
-    /** When each TV's History was last opened, by id. */
+    val isMouseHelperInstalled: Boolean = false,
+    val mouseEnabled: Boolean = true,    /** When each TV's History was last opened, by id. */
     val historySeen: Map<String, Long> = emptyMap(),
     val defaultUrlAppPkg: String? = null,
     val urlPickerOpen: Boolean = false,
@@ -550,7 +556,7 @@ class TellyscopeViewModel(
             viewModelScope.launch(Dispatchers.IO) { _state.update { it.copy(checkUpdates = u.enabled, alphaBuild = u.alpha) } }
         }
         keyHaptics?.let { k ->
-            viewModelScope.launch(Dispatchers.IO) { _state.update { it.copy(keyHaptics = k.on, screenOffTip = !k.screenOffTipSeen, touchpad = k.touchpad) } }
+            viewModelScope.launch(Dispatchers.IO) { _state.update { it.copy(keyHaptics = k.on, screenOffTip = !k.screenOffTipSeen, touchpad = k.touchpad, remoteMode = k.remoteMode, mouseEnabled = k.mouseEnabled) } }
         }
         gates?.let { g ->
             viewModelScope.launch(Dispatchers.IO) { _state.update { it.copy(debloatGate = DEBLOAT_GATE !in g.folded()) } }
@@ -2005,16 +2011,244 @@ class TellyscopeViewModel(
         viewModelScope.launch(Dispatchers.IO) { u.enabled = on }
     }
 
+    fun setTvPointerOverlay(on: Boolean) {
+        val id = _state.value.selectedId ?: return
+        _state.update { it.copy(tvPointerOverlay = on) }
+        viewModelScope.launch(Dispatchers.IO) {
+            source.setTvPointerOverlay(id, on)
+        }
+    }
+
+    fun installMousePlugin() {
+        val id = _state.value.selectedId ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = source.installMousePlugin(id)
+            if (ok) {
+                _state.update { it.copy(tvPointerOverlay = true, isMouseHelperInstalled = true) }
+                _notice.value = UiText(R.string.settings_mouse_plugin_installed)
+            }
+        }
+    }
+
     fun setKeyHaptics(on: Boolean) {
         _state.update { it.copy(keyHaptics = on) }
         viewModelScope.launch(Dispatchers.IO) { keyHaptics?.on = on }
     }
 
+    fun setMouseEnabled(on: Boolean) {
+        _state.update { s ->
+            val nextMode = if (!on && s.remoteMode == RemoteMode.MOUSE) RemoteMode.DPAD else s.remoteMode
+            s.copy(mouseEnabled = on, remoteMode = nextMode)
+        }
+        viewModelScope.launch(Dispatchers.IO) { keyHaptics?.mouseEnabled = on }
+    }
+
     /** The touchpad (true) or the D-pad on the Remote, kept for this phone. */
     fun setTouchpad(on: Boolean) {
-        _state.update { it.copy(touchpad = on) }
+        _state.update { it.copy(touchpad = on, remoteMode = if (on) RemoteMode.TOUCHPAD else RemoteMode.DPAD) }
         viewModelScope.launch(Dispatchers.IO) { keyHaptics?.touchpad = on }
     }
+
+    /** Sets the active remote control mode: DPAD, TOUCHPAD, or MOUSE. */
+    fun setRemoteMode(mode: RemoteMode) {
+        val id = _state.value.selectedId
+        _state.update { it.copy(remoteMode = mode, touchpad = mode == RemoteMode.TOUCHPAD) }
+        viewModelScope.launch(Dispatchers.IO) {
+            keyHaptics?.remoteMode = mode
+            if (mode == RemoteMode.MOUSE && id != null) {
+                val installed = source.isMousePluginInstalled(id)
+                _state.update { it.copy(isMouseHelperInstalled = installed) }
+                source.setTvPointerOverlay(id, true)
+            }
+        }
+    }
+
+    fun deleteFile(folder: TvFolder, file: TvFile) {
+        val id = _state.value.selectedId ?: return
+        viewModelScope.launch {
+            try {
+                val ok = source.deleteFile(id, folder, file)
+                if (ok) {
+                    loadFiles()
+                }
+            } catch (_: Exception) {
+                _notice.value = Copy.FILES_LOST
+            }
+        }
+    }
+
+    fun copyFile(folder: TvFolder, file: TvFile) {
+        _state.update { s ->
+            s.copy(device = s.device.copy(files = s.device.files.copy(copiedFile = CopiedFile(folder, file))))
+        }
+        _notice.value = UiText(R.string.transfers_copied, file.name)
+    }
+
+    fun pasteFile(toFolder: TvFolder) {
+        val id = _state.value.selectedId ?: return
+        val copied = _state.value.device.files.copiedFile ?: return
+        viewModelScope.launch {
+            try {
+                val ok = source.copyFile(id, copied.folder, copied.file, toFolder)
+                if (ok) {
+                    loadFiles()
+                }
+            } catch (_: Exception) {
+                _notice.value = Copy.FILES_LOST
+            }
+        }
+    }
+
+    fun clearCopiedFile() {
+        _state.update { s ->
+            s.copy(device = s.device.copy(files = s.device.files.copy(copiedFile = null, fileClip = null)))
+        }
+    }
+
+    fun openFilePicker(file: TvFile) {
+        val apps = _state.value.device.apps
+        _state.update { s -> s.copy(device = s.device.copy(openWith = OpenWithUi(file, apps))) }
+    }
+
+    fun closeOpenWith() {
+        _state.update { s -> s.copy(device = s.device.copy(openWith = null)) }
+    }
+
+    fun openFileWith(file: TvFile, app: AppInfo) {
+        val id = _state.value.selectedId ?: return
+        val path = file.path.ifEmpty { "${_state.value.device.files.currentPath}/${file.name}" }
+        val ext = file.name.substringAfterLast('.', "").lowercase()
+        val mimeType = when (ext) {
+            "mp4", "mkv", "avi", "mov", "webm", "ts", "m3u8", "3gp", "flv" -> "video/*"
+            "mp3", "aac", "flac", "ogg", "wav", "m4a", "wma" -> "audio/*"
+            "jpg", "jpeg", "png", "gif", "webp", "bmp" -> "image/*"
+            "pdf" -> "application/pdf"
+            "txt", "json", "xml", "log", "html", "htm" -> "text/*"
+            "apk", "apks", "xapk" -> "application/vnd.android.package-archive"
+            else -> "*/*"
+        }
+        closeOpenWith()
+        viewModelScope.launch(Dispatchers.IO) {
+            source.openFileWithApp(id, path, app.packageName, mimeType)
+        }
+    }
+
+    fun openUrl(url: String, forcePicker: Boolean = false) {
+        val id = _state.value.selectedId ?: return
+        val cleanUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+        val savedPkg = _state.value.defaultUrlAppPkg ?: keyHaptics?.defaultUrlAppPkg
+        if (forcePicker || savedPkg == null) {
+            _state.update { s -> s.copy(urlPickerOpen = true, pendingUrl = cleanUrl) }
+        } else {
+            viewModelScope.launch(Dispatchers.IO) {
+                source.openUrl(id, cleanUrl, savedPkg)
+            }
+        }
+    }
+
+    fun selectUrlApp(app: AppInfo) {
+        val id = _state.value.selectedId ?: return
+        val url = _state.value.pendingUrl ?: return
+        _state.update { s -> s.copy(defaultUrlAppPkg = app.packageName, urlPickerOpen = false, pendingUrl = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            keyHaptics?.defaultUrlAppPkg = app.packageName
+            source.openUrl(id, url, app.packageName)
+        }
+    }
+
+    fun closeUrlPicker() {
+        _state.update { s -> s.copy(urlPickerOpen = false, pendingUrl = null) }
+    }
+
+    fun cutPath(name: String, path: String) {
+        _state.update { s ->
+            s.copy(device = s.device.copy(files = s.device.files.copy(fileClip = FileClip(name, path, FileOpMode.CUT))))
+        }
+        _notice.value = UiText(R.string.transfers_copied, name)
+    }
+
+    fun copyPath(name: String, path: String) {
+        _state.update { s ->
+            s.copy(device = s.device.copy(files = s.device.files.copy(fileClip = FileClip(name, path, FileOpMode.COPY))))
+        }
+        _notice.value = UiText(R.string.transfers_copied, name)
+    }
+
+    fun pastePath(destDirPath: String) {
+        val id = _state.value.selectedId ?: return
+        val clip = _state.value.device.files.fileClip ?: return
+        viewModelScope.launch {
+            try {
+                val ok = if (clip.mode == FileOpMode.CUT) {
+                    source.movePath(id, clip.path, destDirPath)
+                } else {
+                    source.copyPath(id, clip.path, destDirPath)
+                }
+                if (ok) {
+                    _state.update { s -> s.copy(device = s.device.copy(files = s.device.files.copy(fileClip = null))) }
+                    loadFilesForPath(destDirPath)
+                }
+            } catch (_: Exception) {
+                _notice.value = Copy.FILES_LOST
+            }
+        }
+    }
+
+    fun deletePath(path: String) {
+        val id = _state.value.selectedId ?: return
+        val currentPath = _state.value.device.files.currentPath
+        viewModelScope.launch {
+            try {
+                val ok = source.deletePath(id, path)
+                if (ok) {
+                    loadFilesForPath(currentPath)
+                }
+            } catch (_: Exception) {
+                _notice.value = Copy.FILES_LOST
+            }
+        }
+    }
+
+    fun moveCursor(x: Int, y: Int) {
+        val id = _state.value.selectedId ?: return
+        viewModelScope.launch {
+            keys.withLock {
+                try {
+                    source.moveCursor(id, x, y)
+                } catch (_: Exception) {
+                    _notice.value = Copy.REMOTE_LOST
+                }
+            }
+        }
+    }
+
+    fun drag(x1: Int, y1: Int, x2: Int, y2: Int) {
+        val id = _state.value.selectedId ?: return
+        viewModelScope.launch {
+            keys.withLock {
+                try {
+                    source.drag(id, x1, y1, x2, y2)
+                } catch (_: Exception) {
+                    _notice.value = Copy.REMOTE_LOST
+                }
+            }
+        }
+    }
+
+    fun tap(x: Int, y: Int) {
+        val id = _state.value.selectedId ?: return
+        viewModelScope.launch {
+            keys.withLock {
+                try {
+                    source.tap(id, x, y)
+                } catch (_: Exception) {
+                    _notice.value = Copy.REMOTE_LOST
+                }
+            }
+        }
+    }
+
+
 
     /** Disables the ticked suggestions one by one, each recorded in History with its own undo; Debloat shows how far. */
     fun disableSuggested(apps: List<ResetApp>) {

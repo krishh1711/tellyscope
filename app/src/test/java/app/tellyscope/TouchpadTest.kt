@@ -53,4 +53,15 @@ class TouchpadTest {
         KeyHaptics(file).touchpad = false
         assertFalse(KeyHaptics(file).touchpad)
     }
+
+    @Test fun remoteModeIsPersistedAndKept() {
+        val file = File(dir.root, "remote.properties")
+        assertEquals(app.tellyscope.data.RemoteMode.DPAD, KeyHaptics(file).remoteMode)
+        KeyHaptics(file).remoteMode = app.tellyscope.data.RemoteMode.MOUSE
+        assertEquals(app.tellyscope.data.RemoteMode.MOUSE, KeyHaptics(file).remoteMode)
+        assertTrue(KeyHaptics(file).on)
+        KeyHaptics(file).remoteMode = app.tellyscope.data.RemoteMode.TOUCHPAD
+        assertEquals(app.tellyscope.data.RemoteMode.TOUCHPAD, KeyHaptics(file).remoteMode)
+        assertTrue(KeyHaptics(file).touchpad)
+    }
 }
